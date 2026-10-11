@@ -530,6 +530,8 @@
 "status.show-more-all-button.accessibility-label" = "Show more for all";
 "status.show-less" = "Show Less";
 "status.show-less-all-button.accessibility-label" = "Show less for all";
+"status.expand-thread-button.accessibility-label" = "Expand thread";
+"status.collapse-thread-button.accessibility-label" = "Collapse thread";
 "status.show-thread" = "Show thread";
 "status.spoiler-text-placeholder" = "Write your warning here";
 "status.unbookmark" = "Unbookmark";

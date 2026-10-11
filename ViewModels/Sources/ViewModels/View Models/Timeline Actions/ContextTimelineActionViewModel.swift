@@ -3,18 +3,12 @@
 import Combine
 import Mastodon
 
-/// When looking at a thread, we can expand or collapse all CWs.
+/// When looking at a thread, show only the focused post, or expand to the whole thread.
 public final class ContextTimelineActionViewModel: ObservableObject {
-  @Published public var expandAll: ExpandAllState = .expand
+  /// Collapsed by default: only the focused post is shown.
+  @Published public var threadExpanded = false
 
   public func toggle() {
-    switch expandAll {
-    case .expand:
-      expandAll = .expanding
-    case .collapse:
-      expandAll = .collapsing
-    case .collapsing, .expanding:
-      return
-    }
+    threadExpanded.toggle()
   }
 }

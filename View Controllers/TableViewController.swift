@@ -1038,29 +1038,38 @@ extension TableViewController {
   fileprivate func setupTimelineActionBarButtonItem(_ timelineActionViewModel: TimelineActionViewModel) {
     switch timelineActionViewModel {
     case .context(let contextTimelineActionViewModel):
-      contextTimelineActionViewModel.$expandAll
+      // One button that toggles between showing only the focused post and the whole thread.
+      // The same button is kept and only its label and image change, so VoiceOver focus stays on it.
+      let threadButton = UIBarButtonItem(
+        title: nil,
+        image: nil,
+        primaryAction: UIAction { [weak contextTimelineActionViewModel] _ in
+          contextTimelineActionViewModel?.toggle()
+        }
+      )
+      navigationItem.rightBarButtonItem = threadButton
+
+      contextTimelineActionViewModel.$threadExpanded
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] expandAllState in
-          switch expandAllState {
-          case .expand:
-            self?.navigationItem.rightBarButtonItem = UIBarButtonItem(
-              title: NSLocalizedString("status.show-more-all-button.accessibility-label", comment: ""),
-              image: UIImage(systemName: "eye"),
-              primaryAction: UIAction { [weak contextTimelineActionViewModel] _ in
-                contextTimelineActionViewModel?.toggle()
-              }
+        .sink { threadExpanded in
+          let title = threadExpanded
+            ? NSLocalizedString(
+              "status.collapse-thread-button.accessibility-label",
+              value: "Collapse thread",
+              comment: ""
             )
-          case .collapse:
-            self?.navigationItem.rightBarButtonItem = UIBarButtonItem(
-              title: NSLocalizedString("status.show-less-all-button.accessibility-label", comment: ""),
-              image: UIImage(systemName: "eye.slash"),
-              primaryAction: UIAction { [weak contextTimelineActionViewModel] _ in
-                contextTimelineActionViewModel?.toggle()
-              }
+            : NSLocalizedString(
+              "status.expand-thread-button.accessibility-label",
+              value: "Expand thread",
+              comment: ""
             )
-          case .collapsing, .expanding:
-            return
-          }
+          threadButton.title = title
+          threadButton.accessibilityLabel = title
+          threadButton.image = UIImage(
+            systemName: threadExpanded
+              ? "arrow.down.right.and.arrow.up.left"
+              : "arrow.up.left.and.arrow.down.right"
+          )
         }
         .store(in: &cancellables)
 

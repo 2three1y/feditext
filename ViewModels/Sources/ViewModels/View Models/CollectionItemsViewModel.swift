@@ -23,6 +23,8 @@ public class CollectionItemsViewModel: ObservableObject {
   private var lastSelectedLoadMore: LoadMore?
   private var localLastReadId: CollectionItem.Id?
   private var markerLastReadId: CollectionItem.Id?
+  private var latestSections = [CollectionSection]()
+  private var contextThreadExpanded = false
   private var cancellables = Set<AnyCancellable>()
   private var requestCancellables = Set<AnyCancellable>()
 
@@ -102,50 +104,17 @@ public class CollectionItemsViewModel: ObservableObject {
         collectionService: collectionService,
         collectionItemsViewModel: self
       )
-    } else if let contextService = collectionService as? ContextService,
-      !identityContext.identity.preferences.readingExpandSpoilers
-    {
+    } else if collectionService is ContextService {
       let contextTimelineActionViewModel = ContextTimelineActionViewModel()
 
-      contextTimelineActionViewModel.$expandAll
-        .sink(receiveValue: { [weak self] expandAll in
+      contextTimelineActionViewModel.$threadExpanded
+        .dropFirst()
+        .removeDuplicates()
+        .sink(receiveValue: { [weak self] threadExpanded in
           guard let self = self else { return }
 
-          let statusIds = Set(
-            self.lastUpdate.sections
-              .map(\.items)
-              .reduce([], +)
-              .compactMap { item -> Status.Id? in
-                guard case .status(let status, _, _, _) = item else { return nil }
-
-                return status.id
-              }
-          )
-
-          switch expandAll {
-          case .expanding:
-            contextService.expand(ids: statusIds)
-              .assignErrorsToAlertItem(to: \.alertItem, on: self)
-              .sink(
-                receiveCompletion: { _ in
-                  contextTimelineActionViewModel.expandAll = .collapse
-                },
-                receiveValue: { _ in }
-              )
-              .store(in: &cancellables)
-          case .collapsing:
-            contextService.collapse(ids: statusIds)
-              .assignErrorsToAlertItem(to: \.alertItem, on: self)
-              .sink(
-                receiveCompletion: { _ in
-                  contextTimelineActionViewModel.expandAll = .expand
-                },
-                receiveValue: { _ in }
-              )
-              .store(in: &cancellables)
-          case .collapse, .expand:
-            return
-          }
+          self.contextThreadExpanded = threadExpanded
+          self.process(sections: self.latestSections)
         })
         .store(in: &cancellables)
 
@@ -635,7 +604,25 @@ extension CollectionItemsViewModel {
     collectionService is ContextService && lastUpdate.sections.map(\.items).map(\.count) == [0, 1, 0]
   }
 
-  fileprivate func process(sections: [CollectionSection]) {
+  /// In a thread, show only the focused post until the thread is expanded.
+  fileprivate func visibleSections(_ sections: [CollectionSection]) -> [CollectionSection] {
+    guard collectionService is ContextService, !contextThreadExpanded else { return sections }
+
+    return sections.map { section in
+      CollectionSection(
+        items: section.items.filter { item in
+          guard case .status(_, let configuration, _, _) = item else { return false }
+
+          return configuration.isContextParent
+        },
+        searchScope: section.searchScope
+      )
+    }
+  }
+
+  fileprivate func process(sections allSections: [CollectionSection]) {
+    latestSections = allSections
+    let sections = visibleSections(allSections)
     let items = sections.map(\.items).reduce([], +)
     let itemsSet = Set(items)
 
