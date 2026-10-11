@@ -1,0 +1,75 @@
+name: Simulator build
+# Builds this branch for the iOS Simulator (unsigned Debug) and uploads Feditext.app.zip as an artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      xcode:
+        description: Xcode app under /Applications (blank = newest Xcode 16)
+        default: ""
+        required: false
+  push:
+    branches: [ app-store-testflight ]
+    paths-ignore: [ "**.md" ]
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 80
+    env:
+      XCODE_APP: ${{ inputs.xcode }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Pick Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          if [ -z "$XCODE_APP" ]; then XCODE_APP=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1); fi
+          if [ -n "$XCODE_APP" ] && [ -d "$XCODE_APP" ]; then sudo xcode-select -s "$XCODE_APP"; fi
+          { xcodebuild -version; xcrun simctl list runtimes; xcodebuild -list -project Feditext.xcodeproj; } 2>&1 | tee xcode-info.txt
+          echo "${GITHUB_REF_NAME} ${GITHUB_SHA}" > build-commit.txt
+      - name: Resolve packages
+        run: xcodebuild -resolvePackageDependencies -project Feditext.xcodeproj -scheme Feditext -derivedDataPath build 2>&1 | tee resolve.log | tail -30
+      - name: Build for iOS Simulator (Debug, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project Feditext.xcodeproj -scheme Feditext -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            -skipPackagePluginValidation -skipMacroValidation \
+            build 2>&1 | tee build.log | (grep -E "error:|BUILD|Linking" || true) | tail -60
+      - name: Zip the app
+        run: |
+          ls -la build/Build/Products/Debug-iphonesimulator/
+          cd build/Build/Products/Debug-iphonesimulator && zip -qr -y "$GITHUB_WORKSPACE/Feditext.app.zip" Feditext.app
+          ls -la "$GITHUB_WORKSPACE/Feditext.app.zip"
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Feditext-sim-${{ github.ref_name }}-${{ github.run_number }}
+          path: |
+            Feditext.app.zip
+            build.log
+            resolve.log
+            xcode-info.txt
+            build-commit.txt
+          if-no-files-found: warn
+      - name: Temporary download links (72 h) in the job summary
+        if: always()
+        run: |
+          set +e
+          {
+            echo "## Build ${GITHUB_RUN_NUMBER} (${GITHUB_REF_NAME} @ ${GITHUB_SHA})"
+            if [ -f Feditext.app.zip ]; then
+              echo "- size: $(stat -f%z Feditext.app.zip) bytes, sha256 $(shasum -a 256 Feditext.app.zip | cut -d' ' -f1)"
+              echo "- app: $(curl -s -F 'reqtype=fileupload' -F 'time=72h' -F 'fileToUpload=@Feditext.app.zip' https://litterbox.catbox.moe/resources/internals/api.php)"
+            fi
+            if [ -f build.log ]; then gzip -kf build.log; echo "- log: $(curl -s -F 'reqtype=fileupload' -F 'time=72h' -F 'fileToUpload=@build.log.gz' https://litterbox.catbox.moe/resources/internals/api.php)"; fi
+            echo; echo '```'; { grep -E "error:" build.log | head -40; tail -15 build.log; } 2>/dev/null | cut -c1-300; echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY" > summary.txt
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ github.ref_name }}-${{ github.run_number }}
+          path: summary.txt
